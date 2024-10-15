@@ -1,94 +1,145 @@
 ﻿using System;
-using System.Collections.Concurrent;
-using System.Net.WebSockets;
 using System.Threading;
+using UnityWebSocket;
+
+#if !UNITY_EDITOR && UNITY_WEBGL
+using Task = Cysharp.Threading.Tasks.UniTask;
+#else
+using Task = System.Threading.Tasks.Task;
+#endif
+
 
 namespace MiniGame.Network
 {
     public class WsChannel : INetChannel, IDisposable
     {
-        private ClientWebSocket _socket;
-        private CancellationTokenSource _cts;
-        private bool _sending;
-        private bool _receiving;
-        private INetPackageDecoder _decoder;
-        private INetPackageEncoder _encoder;
+        public const int HeartBeatInterval = 1;
 
-        private ConcurrentQueue<DefaultNetPackage> _sendQueue = new ConcurrentQueue<DefaultNetPackage>();
-        private ConcurrentQueue<DefaultNetPackage> _receiveQueue = new ConcurrentQueue<DefaultNetPackage>();
+        // private readonly ClientWebSocket _wsClient;
+        private readonly WebSocket _wsClient;
+        private readonly INetPackageEncoder _encoder;
+        private readonly INetPackageDecoder _decoder;
+        private readonly CancellationTokenSource _cts;
 
-        private RingBuffer _encodeBuffer = new RingBuffer(DefaultNetPackage.PkgMaxSize * 4);
-        private RingBuffer _decodeBuffer = new RingBuffer(DefaultNetPackage.PkgMaxSize * 4);
-
-        public WsChannel(INetPackageEncoder encoder, INetPackageDecoder decoder, ClientWebSocket socket)
+        private readonly DefaultNetPackage _heartbeatPkg = new DefaultNetPackage
         {
+            MsgId = 1,
+            MsgIndex = -1,
+            BodyBytes = System.Text.Encoding.UTF8.GetBytes("ping")
+        };
+
+        public WsChannel(WebSocket wsClient, INetPackageEncoder encoder, INetPackageDecoder decoder)
+        {
+            _wsClient = wsClient;
             _encoder = encoder;
             _decoder = decoder;
-            _socket = socket;
+            _cts = new CancellationTokenSource();
         }
+
+        private async Task SendProcess()
+        {
+            Log("SendProcess start");
+            while (Connected && !_cts.Token.IsCancellationRequested)
+            {
+                await Task.Delay(1);
+                if (_encoder.Buffer.Count > 0)
+                {
+                    Log($"SendProcess _encodeBuffer.ReadableBytes = {_encoder.Buffer.Count}");
+                    var headBeforeSend = _encoder.Buffer.Head;
+                    var bytes = _encoder.Buffer.ReadAllAvailable();
+                    try
+                    {
+                        _wsClient.SendAsync(bytes);
+                        Log($"WriteAsync succeed. send bytes: {bytes.Length}");
+                    }
+                    catch (Exception e)
+                    {
+                        _encoder.Buffer.Head = headBeforeSend;
+                        Log($"WriteAsync Exception. unable to send bytes: {_encoder.Buffer.Count}");
+                        Log($"Exception: {e.Message}");
+                    }
+                }
+            }
+
+            Log($"SendProcess exit. Connected: {Connected} cts: {_cts.Token.IsCancellationRequested}");
+        }
+
+        private void OnWebMessage(object sender, MessageEventArgs messageEventArgs)
+        {
+            Log($"OnWebMessage: {messageEventArgs.RawData.Length}");
+            if (messageEventArgs.IsBinary)
+            {
+                _decoder.Buffer.Write(messageEventArgs.RawData, 0, messageEventArgs.RawData.Length);
+            }
+            else
+            {
+                Log($"OnWebMessage: {messageEventArgs.Data}");
+            }
+        }
+
+        private async Task HeartBeatProcess()
+        {
+            Log("HeartBeatProcess start");
+            while (Connected && !_cts.Token.IsCancellationRequested)
+            {
+                await Task.Delay(HeartBeatInterval * 1000);
+                WritePkg(_heartbeatPkg);
+            }
+
+            Log("HeartBeatProcess exit");
+        }
+
+        [System.Diagnostics.Conditional("NET_CHANNEL_LOG")]
+        private void Log(string msg)
+        {
+            var time = DateTime.Now.ToString("HH:mm:ss.fff");
+            var thread = Thread.CurrentThread.ManagedThreadId;
+            var log = $"[{time}][Ws Channel Log][T-{thread:D3}] {msg}";
+#if UNITY_EDITOR
+            UnityEngine.Debug.Log(log);
+#else
+            Console.WriteLine(log);
+#endif
+        }
+
+        #region implement INetChannel
 
         public void Dispose()
         {
+            Close();
         }
 
-        public bool Connected => _socket.State == WebSocketState.Open;
+        // public bool Connected => _wsClient.State == WebSocketState.Open;
+        public bool Connected => _wsClient.ReadyState == WebSocketState.Open;
 
-        public void Update(float unscaledDeltaTime)
+        public void Open()
         {
-            if (_socket.State == WebSocketState.Open)
-            {
-                ProcessSend();
-                ProcessReceive();
-            }
-        }
-
-        public void SendPkg(INetPackage pkg)
-        {
-            // _sendQueue.Enqueue(pkg);
-        }
-
-        public INetPackage PickPkg()
-        {
-            throw new NotImplementedException();
-        }
-
-        private async void ProcessSend()
-        {
-            if (_sending || _sendQueue.Count == 0)
+            if (_wsClient == null)
             {
                 return;
             }
 
-            _sending = true;
-            while (_sendQueue.TryDequeue(out var pkg))
-            {
-                if (_encodeBuffer.WriteableBytes < DefaultNetPackage.PkgMaxSize)
-                {
-                    break;
-                }
-
-                _encoder.Encode(_encodeBuffer, pkg);
-                await _socket.SendAsync(_encodeBuffer.ReadBytes(_encodeBuffer.ReadableBytes),
-                    WebSocketMessageType.Binary, true, _cts.Token);
-            }
-
-            _sending = false;
+            _ = SendProcess();
+            _ = HeartBeatProcess();
+            _wsClient.OnMessage += OnWebMessage;
         }
 
-        private async void ProcessReceive()
+        public void Close()
         {
-            if (_receiving || _socket.State != WebSocketState.Open || _cts.IsCancellationRequested)
-            {
-                return;
-            }
-            
-            _receiving = true;
-            var segment = new ArraySegment<byte>(new byte[DefaultNetPackage.PkgMaxSize]);
-            while (!_cts.IsCancellationRequested)
-            {
-                var result = await _socket.ReceiveAsync(segment, _cts.Token);
-                _decodeBuffer.WriteBytes(segment.Array, 0, result.Count);
-            }
+            _cts.Cancel();
         }
+
+        public void WritePkg(INetPackage pkg)
+        {
+            _encoder.Encode(pkg);
+        }
+
+        public bool PickPkg(out INetPackage pkg)
+        {
+            pkg = _decoder.Decode();
+            return pkg != null;
+        }
+
+        #endregion
     }
 }

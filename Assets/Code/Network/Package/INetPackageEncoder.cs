@@ -2,6 +2,8 @@ namespace MiniGame.Network
 {
     public interface INetPackageEncoder
     {
-        void Encode(RingBuffer ringBuffer, INetPackage encodePkg);
+        ByteRingBuffer Buffer { get; }
+        // void Encode(ByteRingBuffer buffer, INetPackage pkg);
+        void Encode(INetPackage pkg);
     }
 }
