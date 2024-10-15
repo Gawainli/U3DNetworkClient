@@ -2,7 +2,9 @@ namespace MiniGame.Network
 {
     public class DefaultPkgEncoder : INetPackageEncoder
     {
-        public void Encode(RingBuffer ringBuffer, INetPackage? encodePkg)
+        public ByteRingBuffer Buffer { get; } = new(DefaultNetPackage.PkgMaxSize);
+
+        public void Encode(ByteRingBuffer ringBuffer, INetPackage encodePkg)
         {
             if (encodePkg == null)
             {
@@ -15,10 +17,15 @@ namespace MiniGame.Network
                 return;
             }
 
-            ringBuffer.WriteInt(pkg.MsgId);
-            ringBuffer.WriteInt(pkg.MsgIndex);
-            ringBuffer.WriteInt(pkg.BodyBytes.Length);
-            ringBuffer.WriteBytes(pkg.BodyBytes, 0, pkg.BodyBytes.Length);
+            ringBuffer.WriteInt32(pkg.MsgId);
+            ringBuffer.WriteInt32(pkg.MsgIndex);
+            ringBuffer.WriteInt32(pkg.BodyBytes.Length);
+            ringBuffer.Write(pkg.BodyBytes);
+        }
+
+        public void Encode(INetPackage encodePkg)
+        {
+            Encode(Buffer, encodePkg);
         }
     }
 }

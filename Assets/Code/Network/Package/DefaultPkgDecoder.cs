@@ -1,50 +1,45 @@
-using System.Collections.Generic;
+using System;
 
 namespace MiniGame.Network
 {
     public class DefaultPkgDecoder : INetPackageDecoder
     {
-        public void Decode(RingBuffer ringBuffer, List<INetPackage> outNetPackages)
+        public ByteRingBuffer Buffer { get; } = new ( DefaultNetPackage.PkgMaxSize);
+
+        public INetPackage Decode(ByteRingBuffer ringBuffer)
         {
-            while (true)
+            if (ringBuffer.Count < DefaultNetPackage.HeaderSize)
             {
-                if (ringBuffer.ReadableBytes < DefaultNetPackage.HeaderSize)
-                {
-                    break;
-                }
-
-                ringBuffer.MarkReaderIndex();
-
-                var msgId = ringBuffer.ReadInt();
-                var msgIndex = ringBuffer.ReadInt();
-                var msgBodyLength = ringBuffer.ReadInt();
-
-                if (ringBuffer.ReadableBytes < msgBodyLength)
-                {
-                    ringBuffer.ResetReaderIndex();
-                    break;
-                }
-
-                if (msgBodyLength > DefaultNetPackage.BodyMaxSize)
-                {
-                    break;
-                }
-
-                var pkg = new DefaultNetPackage
-                {
-                    MsgId = msgId,
-                    MsgIndex = msgIndex,
-                    BodyBytes = ringBuffer.ReadBytes(msgBodyLength)
-                };
-                outNetPackages.Add(pkg);
+                return null;
             }
 
-            ringBuffer.DiscardReadBytes();
+            var headBeforeRead = ringBuffer.Head;
+            var msgId = ringBuffer.ReadInt32();
+            var msgIndex = ringBuffer.ReadInt32();
+            var msgBodyLength = ringBuffer.ReadInt32();
+
+            if (ringBuffer.Count < msgBodyLength)
+            {
+                ringBuffer.Head = headBeforeRead;
+                return null;
+            }
+
+            if (msgBodyLength > DefaultNetPackage.BodyMaxSize)
+            {
+                throw new ArgumentOutOfRangeException();
+            }
+
+            return new DefaultNetPackage
+            {
+                MsgId = msgId,
+                MsgIndex = msgIndex,
+                BodyBytes = ringBuffer.Read(msgBodyLength)
+            };
         }
 
-        public INetPackage Decode(byte[] bytes)
+        public INetPackage Decode()
         {
-            return null;
+            return Decode(Buffer);
         }
     }
 }
