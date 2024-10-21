@@ -5,6 +5,7 @@ namespace MiniGame.Network
     public class EchoMessage : IMessage
     {
         public int MsgId => 2;
+        public int RespId => 2;
         public string text;
     }
 

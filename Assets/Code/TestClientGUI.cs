@@ -76,10 +76,10 @@ namespace Code
         private void OnClientOnMessage(IMessage message)
         {
             if (message is not EchoMessage echoMessage) return;
-            _receiveCount += 1;
+            _receiveCount++;
             if (_logMessage)
             {
-                AddLog($"Receive {_receiveCount} Msg:{echoMessage.text}");
+                AddLog($"Receive Server {_receiveCount} Msg:{echoMessage.text}");
             }
         }
 
@@ -182,6 +182,23 @@ namespace Code
                     _sendCount += 1;
                 }
             }
+            
+            if (GUILayout.Button("Request") && !string.IsNullOrEmpty(sendText))
+            {
+                _echoMessage.text = sendText;
+                TestReq();
+                _sendCount += 1;
+            }
+            
+            if (GUILayout.Button("Request x100") && !string.IsNullOrEmpty(sendText))
+            {
+                for (int i = 0; i < 100; i++)
+                {
+                    _echoMessage.text = sendText;
+                    TestReq();
+                    _sendCount += 1;
+                }
+            }
 
             GUILayout.EndHorizontal();
 
@@ -218,6 +235,14 @@ namespace Code
             }
 
             _scrollPos.y = int.MaxValue;
+        }
+
+        private async void TestReq()
+        {
+            var respMsg = await _client.ReqMessage(_echoMessage);
+            if (respMsg is not EchoMessage echoMessage) return;
+            _receiveCount++;
+            AddLog($"Receive Request Resp {_receiveCount} Msg: {echoMessage.text}");
         }
 
         private int _frame = 0;

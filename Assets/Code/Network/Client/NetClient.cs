@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 
@@ -12,12 +13,14 @@ namespace MiniGame.Network
         BadConnection,
         Disconnecting,
     }
-    
+
     public abstract class NetClient
     {
         private const int MaxReConnectCount = 5;
+
         //second
         private const float CheckHeartbeatInterval = 1f;
+
         //millisecond
         private const int ReConnectDelay = 1000;
 
@@ -34,7 +37,7 @@ namespace MiniGame.Network
                 }
             }
         }
-        
+
         private ClientState _currentState;
         private ClientState _lastState;
 
@@ -46,13 +49,15 @@ namespace MiniGame.Network
         protected int port;
         protected readonly INetPackageEncoder pkgEncoder;
         protected readonly INetPackageDecoder pkgDecoder;
-        
+
         private int _heartbeatMissCount;
         private int _reconnectCount;
         private float _checkHeartbeatWaitTime;
 
         private readonly IClientMessageEncoder _messageEncoder;
         private readonly IClientMessageDecoder _messageDecoder;
+
+        private readonly List<NetMessageWaiter> _messageWaiters = new();
 
         public NetClient(IClientMessageEncoder msgEncoder, IClientMessageDecoder msgDecoder)
         {
@@ -100,7 +105,7 @@ namespace MiniGame.Network
             }
         }
 
-        public void SendMessage(IMessage message)
+        public virtual void SendMessage(IMessage message)
         {
             if (netChannel == null)
             {
@@ -115,7 +120,20 @@ namespace MiniGame.Network
             netChannel.WritePkg(pkg);
         }
 
-        public void Tick(float unscaledDeltaTime)
+        public virtual async UniTask<IMessage> ReqMessage(IMessage message, float timeout = 3)
+        {
+            if (netChannel == null)
+            {
+                return null;
+            }
+
+            var waiter = new NetMessageWaiter(message);
+            _messageWaiters.Add(waiter);
+            SendMessage(message);
+            return await waiter.WaitAsync(timeout);
+        }
+
+        public virtual void Tick(float unscaledDeltaTime)
         {
             _checkHeartbeatWaitTime += unscaledDeltaTime;
             if (_checkHeartbeatWaitTime > CheckHeartbeatInterval)
@@ -132,7 +150,7 @@ namespace MiniGame.Network
         {
             netChannel?.Close();
         }
-        
+
         private void CheckConnection()
         {
             if (State != ClientState.Connected)
@@ -168,7 +186,23 @@ namespace MiniGame.Network
                     }
                     else
                     {
-                        onMessage?.Invoke(_messageDecoder?.Decode(netPkg.BodyBytes));
+                        var isWaitMsg = false;
+                        for (int i = _messageWaiters.Count - 1; i >= 0; i--)
+                        {
+                            var waiter = _messageWaiters[i];
+                            if (waiter.WaitMsgId == netPkg.MsgId)
+                            {
+                                isWaitMsg = true;
+                                waiter.SetResultMsg(_messageDecoder?.Decode(netPkg.BodyBytes));
+                                _messageWaiters.RemoveAt(i);
+                                break;
+                            }
+                        }
+
+                        if (!isWaitMsg)
+                        {
+                            onMessage?.Invoke(_messageDecoder?.Decode(netPkg.BodyBytes));
+                        }
                     }
                 }
             }
