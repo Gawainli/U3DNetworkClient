@@ -2,11 +2,6 @@
 
 namespace MiniGame.Network
 {
-    public enum ChannelType
-    {
-        Tcp,
-        WebSocket,
-    }
 
     public interface INetChannel
     {
