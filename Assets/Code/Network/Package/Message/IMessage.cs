@@ -3,6 +3,7 @@
     public interface IMessage
     {
         int MsgId { get; }
+        int RespId { get; }
     }
 
     public interface IClientMessageEncoder
