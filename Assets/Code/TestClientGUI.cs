@@ -1,6 +1,5 @@
 ﻿using System;
-using System.Net;
-using System.Net.Sockets;
+// using System.Net;
 using Cysharp.Threading.Tasks;
 using IngameDebugConsole;
 using MiniGame.Network;
@@ -36,31 +35,34 @@ namespace Code
         private string GetLocalIP()
         {
             string localIP = "";
+#if !UNITY_EDITOR && UNITY_WEBGL
+            localIP = "webgl client";
+#else
             try
             {
                 // 获取所有网络接口的IP地址
-                var host = Dns.GetHostEntry(Dns.GetHostName());
+                var host = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName());
                 foreach (var ip in host.AddressList)
                 {
                     // 过滤出IPv4地址，并且排除回环地址（127.0.0.1）
-                    if (ip.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(ip))
+                    if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(ip))
                     {
                         localIP = ip.ToString();
                         break;
                     }
                 }
             }
-            catch (SocketException ex)
+            catch (Exception ex)
             {
                 Debug.Log("SocketException: " + ex.Message);
             }
-
+            
             // 如果没有找到有效的IP地址，返回"未找到"
             if (string.IsNullOrEmpty(localIP))
             {
                 localIP = "Local IP Address Not Found!";
             }
-
+#endif
             return localIP;
         }
 
@@ -98,7 +100,7 @@ namespace Code
             {
                 return;
             }
-            
+
             var scale = Screen.width / 800f;
             GUI.matrix = Matrix4x4.TRS(new Vector3(0, 0, 0), Quaternion.identity, new Vector3(scale, scale, 1));
             var width = GUILayout.Width(Screen.width / scale - 10);
@@ -182,14 +184,14 @@ namespace Code
                     _sendCount += 1;
                 }
             }
-            
+
             if (GUILayout.Button("Request") && !string.IsNullOrEmpty(sendText))
             {
                 _echoMessage.text = sendText;
                 TestReq();
                 _sendCount += 1;
             }
-            
+
             if (GUILayout.Button("Request x100") && !string.IsNullOrEmpty(sendText))
             {
                 for (int i = 0; i < 100; i++)

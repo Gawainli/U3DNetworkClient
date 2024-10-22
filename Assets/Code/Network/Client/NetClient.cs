@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Threading;
 using Cysharp.Threading.Tasks;
 
 namespace MiniGame.Network
@@ -120,7 +119,7 @@ namespace MiniGame.Network
             netChannel.WritePkg(pkg);
         }
 
-        public virtual async UniTask<IMessage> ReqMessage(IMessage message, float timeout = 3)
+        public virtual async UniTask<IMessage> ReqMessage(IMessage message, float timeout = 30)
         {
             if (netChannel == null)
             {
@@ -211,7 +210,11 @@ namespace MiniGame.Network
         protected void Log(string msg)
         {
             var time = DateTime.Now.ToString("HH:mm:ss.fff");
-            var thread = Thread.CurrentThread.ManagedThreadId;
+#if !UNITY_EDITOR && UNITY_WEBGL
+            var thread = 0;
+#else
+            var thread = System.Threading.Thread.CurrentThread.ManagedThreadId;
+#endif
             var log = $"[{time}][Ws Channel Log][T-{thread:D3}] {msg}";
 #if UNITY_EDITOR
             UnityEngine.Debug.Log(log);
